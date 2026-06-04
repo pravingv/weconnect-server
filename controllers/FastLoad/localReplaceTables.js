@@ -18,6 +18,7 @@ That's it, your data is restored.
 
 // eslint-disable-next-line no-unused-vars
 const prisma = new PrismaClient();
+const dbString = (process.env.DATABASE_URL || 'WeConnectDB').replace(/\?schema=public$/, '');
 
 const isLocal = async (req) => {
   try {
@@ -87,7 +88,7 @@ const backupTheDatabase = async () => {
     let date = DateTime.now().toISO();
     date = date.slice(0, -10);
     const file = `WeConnectDBdumpfile.${date}.sql`;  // example: WeConnectDBdumpfile.2025-05-20T16:27:27.sql
-    const command = `pg_dump WeConnectDB > ${file}`;
+    const command = `pg_dump "${dbString}" > ${file}`;
     console.log('FastLoad local: ', command);
     await exec(command);
     return true;
@@ -142,15 +143,29 @@ const fillTheTable = async (tableName, tableJSON) => {
   }
   try {
     fs.writeFileSync(outTempFile, tableTSV);
+     // Disable all constraints and triggers for this table during bulk load
+    const disableConstraints = `ALTER TABLE "${tableName}" DISABLE TRIGGER ALL;`;
+    const enableConstraints = `ALTER TABLE "${tableName}" ENABLE TRIGGER ALL;`;
+    
     const set = 'SET session_replication_role = \'replica\';';
-    const sql = `COPY "${tableName}" FROM '${outTempFile}';`;
     const unset = 'SET session_replication_role = \'origin\';';
+    
+    await prisma.$queryRawUnsafe(disableConstraints);
+    console.log('FastLoad local: fillTheTable queryRawUnsafe: ', disableConstraints);
+    
     await prisma.$queryRawUnsafe(set);
     console.log('FastLoad local: fillTheTable queryRawUnsafe: ', set);
-    await prisma.$queryRawUnsafe(sql);
-    console.log('FastLoad local: fillTheTable queryRawUnsafe: ', sql);
+    
+    // Use psql \copy for client-side file reading, since Prisma's COPY reads from the DB server's filesystem
+    const copyCommand = `psql "${dbString}" -c "\\copy \\"${tableName}\\" FROM '${outTempFile}'"`;
+    console.log('FastLoad local: fillTheTable exec: ', copyCommand);
+    await exec(copyCommand);
+
     await prisma.$queryRawUnsafe(unset);
     console.log('FastLoad local: fillTheTable queryRawUnsafe: ', unset);
+    
+    await prisma.$queryRawUnsafe(enableConstraints);
+    console.log('FastLoad local: fillTheTable queryRawUnsafe: ', enableConstraints);
   } catch (err) {
     console.error(`FastLoad local: Error in writing ${tableName}: ${err}`);
     error += ` -- Error in writing ${tableName}: ${err}`;
