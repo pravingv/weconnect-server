@@ -11,7 +11,24 @@ We dump the db into a text file in the root of the project
 Use pgAdmin 4 to drop the database Servers/WeVoteServer/Databases/WeConnectDB  -- right click on it and choose 'Delete (Force)'
 Use pgAdmin 4 to reinitialize an empty database -- Servers/WeVoteServer/Databases  -- right click on it and choose Create/Database and enter 'WeConnectDB' and save.
 Select a database dump that was before you started debugging, and should have the full data set
-     psql -X -f WeConnectDBdumpfile.2025-05-20T20:03:55.sql WeConnectDB
+     // psql -X -f WeConnectDBdumpfile.2025-05-20T20:03:55.sql WeConnectDB
+stevepodell@Steves-MBP-M1-Dec2021 weconnect-server % docker compose exec weconnect-db sh
+/ $ bash
+a98ca9d2ef92:/$ psql
+psql (16.14)
+Type "help" for help.
+
+postgres=# CREATE DATABASE "weconnect-db";
+CREATE DATABASE
+postgres=# CREATE ROLE rdsadmin WITH SUPERUSER LOGIN PASSWORD 'admin';
+CREATE ROLE
+postgres=# CREATE ROLE dbadmin WITH SUPERUSER LOGIN PASSWORD 'admin';
+CREATE ROLE
+postgres=# \q
+a98ca9d2ef92:/$
+a98ca9d2ef92:/$ psql -X -f /tmp/backupJun8-454pmPlain  "weconnect-db"
+a98ca9d2ef92:/$
+
 That's it, your data is restored.
 */
 
@@ -33,6 +50,11 @@ const isLocal = async (req) => {
   // Linux ip-10-0-182-109.us-west-2.compute.internal 5.10.235-227.919.amzn2.x86_64 #1 SMP Sat Apr 5 16:59:05 UTC 2025 x86_64 GNU/Linux
   try {
     const { stdout } = await exec('uname -a ');
+    // Check for WSL2 first - this is a valid local environment
+    if (stdout.includes('microsoft-standard-WSL2')) {
+      console.log('FastLoad local: Running on WSL2: ', stdout);
+      return true;
+    }
     if (stdout.startsWith('Linux') || stdout.endsWith('x86_64 GNU/Linux') || stdout.includes('.amzn2.')) {
       console.log('FastLoad local: uname: ', stdout);
       console.error('FastLoad local: Attempted to run localReplaceTable on an AWS instance!');

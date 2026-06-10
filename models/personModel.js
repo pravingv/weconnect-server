@@ -2,6 +2,7 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('@node-rs/bcrypt');
 const validator = require('validator');
+const { exec } = require('child_process');
 
 const prisma = new PrismaClient();
 
@@ -280,6 +281,45 @@ async function findOnePerson (params, includeAllData = false) {   // Find one wi
   return modifiedPerson;
 }
 
+async function deletePersonDataFromOtherTables (id) {
+  await prisma.clientSession.deleteMany({
+    where: {
+      personId: {
+        equals: id,
+      },
+    },
+  });
+
+  await prisma.meetingAttendee.deleteMany({
+    where: {
+      personId: {
+        equals: id,
+      },
+    },
+  });
+  await prisma.task.deleteMany({
+    where: {
+      doneByPersonId: {
+        equals: id,
+      },
+    },
+  });
+  await prisma.taskChangeLog.deleteMany({
+    where: {
+      doneByPersonId: {
+        equals: id,
+      },
+    },
+  });
+  await prisma.teamMember.deleteMany({
+    where: {
+      personId: {
+        equals: id,
+      },
+    },
+  });
+}
+
 async function deleteOne (id) {
   await prisma.person.delete({
     where: {
@@ -416,7 +456,7 @@ async function createPersonAway (updateDict) {
 
 async function comparePassword (person, candidatePassword, cb) {
   try {
-    const verified = await bcrypt.verify(candidatePassword, person.password);
+    const verified = await bcrypt.compare(candidatePassword, person.password);
     cb(null, verified, person.password);
   } catch (err) {
     cb(err);
@@ -518,7 +558,7 @@ const doesPersonHaveIsAdmin = async (email, password) => {
     return isAdmin;
   }
 
-  const verified = await bcrypt.verify(password, person.password);
+  const verified = await bcrypt.compare(password, person.password);
   return verified;
 };
 
@@ -613,7 +653,6 @@ const retrieveProfileChangeLogsFromDb = async (personId) => {
       person: peopleMap[log.personId] || { firstName: 'Unknown', lastName: '' },
       changer: peopleMap[log.changedById] || { firstName: 'System', lastName: '' },
     }));
-
   } catch (error) {
     console.error('Error in retrieveProfileChangeLogsFromDb:', error);
     throw error;
@@ -640,11 +679,35 @@ const createProfileChangeLogEntriesBulk = async (logRows) => {
   }
 };
 
+const createDevPersonIfTheyDontExist = async () => {
+  const { DEV_PERSON_INITIAL_USER, SERVER_IS_SOURCE_OF_TRUTH } = process.env;
+  if (SERVER_IS_SOURCE_OF_TRUTH === 'true') {
+    // Do not run this in production
+    return;
+  }
+
+  try {
+    if (DEV_PERSON_INITIAL_USER && DEV_PERSON_INITIAL_USER.length > 0) {
+      const person = await findOnePerson({ emailPersonal: DEV_PERSON_INITIAL_USER.split(' ')[2] });
+      if (Object.keys(person).length === 0) {
+        exec(`node ./node_scripts/createDevUser ${DEV_PERSON_INITIAL_USER}`);  // Force the exercising of the script, instead of copying code
+        console.log(`createDevPersonIfTheyDontExist: ${DEV_PERSON_INITIAL_USER} created`);
+      } else {
+        console.log(`createDevPersonIfTheyDontExist: ${DEV_PERSON_INITIAL_USER} already exists`);
+      }
+    }
+  } catch (error) {
+    console.log('createDevPersonIfTheyDontExist error:', error);
+  }
+};
+
 module.exports = {
   comparePassword,
+  createDevPersonIfTheyDontExist,
   createPerson,
   createPersonAway,
   deleteOne,
+  deletePersonDataFromOtherTables,
   doesPersonHaveIsAdmin,
   extractPersonVariablesToChange,
   findOnePerson,

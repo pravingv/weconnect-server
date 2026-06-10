@@ -20,7 +20,7 @@ const rateLimit = require('express-rate-limit');
 const cookieParser = require('cookie-parser');
 const useragent = require('express-useragent');
 const { getPersonIdBySessionId } = require('./models/clientSessionModel');
-const { convertTeamDepartmentsToPostgresAcceptableFormat } = require('./controllers/FastLoad/retrieveTables');
+const { createDevPersonIfTheyDontExist } = require('./models/personModel');
 
 process.env.NODE_DEBUG = '';    // Use our custom http logger, that shortens long GET urls
 
@@ -287,7 +287,7 @@ if (process.env.PROTOCOL.includes('https')) {
 /**
  * Start Express server.
  */
-serverHttpOrHttps.listen(weconnectServer.get('port'), () => {
+serverHttpOrHttps.listen(weconnectServer.get('port'), async () => {
   const { BASE_URL } = process.env;
   const colonIndex = BASE_URL.lastIndexOf(':');
   const port = parseInt(BASE_URL.slice(colonIndex + 1), 10);
@@ -298,12 +298,7 @@ serverHttpOrHttps.listen(weconnectServer.get('port'), () => {
     console.warn(`WARNING: The BASE_URL environment variable and the App have a port mismatch. If you plan to view the app in your browser using the localhost address, you may need to adjust one of the ports to make them match. BASE_URL: ${BASE_URL}\n`);
   }
 
-  // This is a data conversion routine that needs to be run a single time in production
-  // and a single time on each developer instance to convert the data in the Teams table departments column
-  // When rerun on subsequent startups, it will do nothing and will waste a fraction of a second of startup time.
-  // See https://wevoteusa.atlassian.net/browse/WV-2669
-  // TODO: Please delete these comments and the following line in May 2026
-  convertTeamDepartmentsToPostgresAcceptableFormat();
+  await createDevPersonIfTheyDontExist();
 
   console.log(`App is running on  ${process.env.BASE_URL}  in  ${weconnectServer.get('env')} mode.`);
   console.log('Press CTRL-C to stop.');
