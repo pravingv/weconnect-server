@@ -57,59 +57,85 @@ const TASK_GROUP_MATCH_REQUIRED = [
   },
 ];
 
-exports.generateTaskStatusListForAllPeople = async () => {
+exports.generateTaskStatusListForAllPeople = async (personIdList = []) => {
   let status = '';
   let success = true;
   // console.log('generateTaskStatusListForAllPeople started');
 
+  const hasPersonIdFilter = Array.isArray(personIdList) && personIdList.length > 0;
+  const personIdFilter = hasPersonIdFilter ? { personId: { in: personIdList } } : {};
+
+  const paramsQuestionAnswerList = { ...personIdFilter };
+  const paramsTaskList = { ...personIdFilter };
+  const paramsTaskDefinitionList = {};
+  const paramsTaskDependencyList = {};
+  const paramsTaskGroupList = {};
+  const paramsTaskGroupTeamLink = {};
+  const paramsTeamMemberInfoList = { ...personIdFilter };
+  // Add params that look for values in person records that imply tasks needs to be generated?
+  const paramsPersonList = {
+    statusActive: true,
+    ...(hasPersonIdFilter ? { id: { in: personIdList } } : {}),
+  };
+
+  // Run all supporting database reads in parallel
+  const [
+    questionAnswerList,
+    taskList,
+    taskDefinitionList,
+    taskDependencyList,
+    taskGroupList,
+    taskGroupTeamLinkList,
+    TeamMemberInfoList,
+    personList,
+  ] = await Promise.all([
+    findQuestionAnswerListByParams(paramsQuestionAnswerList).catch((err) => {
+      status += `Error while fetching questionnaireAnswerList: ${err.message} `;
+      console.error(status);
+      success = false;
+      return [];
+    }),
+    findTaskListByParams(paramsTaskList).catch((err) => {
+      status += `Error while fetching taskList: ${err.message} `;
+      console.error(status);
+      success = false;
+      return [];
+    }),
+    findTaskDefinitionListByParams(paramsTaskDefinitionList),
+    findTaskDependencyListByParams(paramsTaskDependencyList),
+    findTaskGroupListByParams(paramsTaskGroupList),
+    findTaskGroupTeamLinkListByParams(paramsTaskGroupTeamLink).catch((err) => {
+      status += `Error while fetching taskGroupIsForTeam: ${err.message} `;
+      console.error(status);
+      success = false;
+      return [];
+    }),
+    findTeamMemberListByParams(paramsTeamMemberInfoList),
+    findPersonListByParams(paramsPersonList),
+  ]);
+
   // Find out which questionnaires have been answered by which people
   const questionnaireAnsweredDict = {};
-  try {
-    const paramsQuestionAnswerList = {};
-    const questionAnswerList = await findQuestionAnswerListByParams(paramsQuestionAnswerList);
-    questionAnswerList.forEach((answer) => {
-      if (!questionnaireAnsweredDict[answer.personId]) {
-        questionnaireAnsweredDict[answer.personId] = {};
-      }
-      questionnaireAnsweredDict[answer.personId][answer.questionnaireId] = true;
-    });
-  } catch (err) {
-    status += `Error while fetching questionnaireAnswerList: ${err.message} `;
-    console.error(status);
-    success = false;
-  }
+  questionAnswerList.forEach((answer) => {
+    if (!questionnaireAnsweredDict[answer.personId]) {
+      questionnaireAnsweredDict[answer.personId] = {};
+    }
+    questionnaireAnsweredDict[answer.personId][answer.questionnaireId] = true;
+  });
   // console.log('questionnaireAnsweredDict:', questionnaireAnsweredDict);
 
-  // Get all existing tasks
+  // Organize all existing tasks by personId
   const taskListDictByPersonId = {};
-  try {
-    const paramsTaskList = {};
-    const taskList = await findTaskListByParams(paramsTaskList);
-    // console.log('generateTaskStatusListForAllPeople taskList.length:', taskList.length);
-    for (let i = 0; i < taskList.length; i++) {
-      // If task is not found, we create it
-      if (!taskListDictByPersonId[taskList[i].personId]) {
-        taskListDictByPersonId[taskList[i].personId] = [];
-      }
-      taskListDictByPersonId[taskList[i].personId].push(taskList[i]);
+  // console.log('generateTaskStatusListForAllPeople taskList.length:', taskList.length);
+  for (let i = 0; i < taskList.length; i++) {
+    // If task is not found, we create it
+    if (!taskListDictByPersonId[taskList[i].personId]) {
+      taskListDictByPersonId[taskList[i].personId] = [];
     }
-  } catch (err) {
-    status += `Error while fetching taskList: ${err.message} `;
-    console.error(status);
-    success = false;
+    taskListDictByPersonId[taskList[i].personId].push(taskList[i]);
   }
 
-  // Get all task definitions (even if turned off)
-  const paramsTaskDefinitionList = {};
-  const taskDefinitionList = await findTaskDefinitionListByParams(paramsTaskDefinitionList);
-
-  // Get all task dependencies
-  const paramsTaskDependencyList = {};
-  const taskDependencyList = await findTaskDependencyListByParams(paramsTaskDependencyList);
-
-  // Get all task groups
-  const paramsTaskGroupList = {};
-  const taskGroupList = await findTaskGroupListByParams(paramsTaskGroupList);
+  // Organize all task groups by id
   const taskGroupDict = taskGroupList.reduce((acc, taskGroup) => {
     acc[taskGroup.id] = taskGroup;
     return acc;
@@ -117,27 +143,17 @@ exports.generateTaskStatusListForAllPeople = async () => {
 
   // Assemble which teams are associated with each task group when taskGroupIsForTeam is true
   const taskGroupTeamIdLists = {}; // key = taskGroupId, value = [teamId1, teamId2,...]
-  try {
-    const paramsTaskGroupTeamLink = {};
-    const taskGroupTeamLinkList = await findTaskGroupTeamLinkListByParams(paramsTaskGroupTeamLink);
-    // console.log('generateTaskStatusListForAllPeople taskGroupTeamLinkList:', taskGroupTeamLinkList);
-    for (let i = 0; i < taskGroupTeamLinkList.length; i++) {
-      // If taskGroupId is not found in dict, we create it
-      if (!taskGroupTeamIdLists[taskGroupTeamLinkList[i].taskGroupId]) {
-        taskGroupTeamIdLists[taskGroupTeamLinkList[i].taskGroupId] = [];
-      }
-      taskGroupTeamIdLists[taskGroupTeamLinkList[i].taskGroupId].push(taskGroupTeamLinkList[i].teamId);
+  // console.log('generateTaskStatusListForAllPeople taskGroupTeamLinkList:', taskGroupTeamLinkList);
+  for (let i = 0; i < taskGroupTeamLinkList.length; i++) {
+    // If taskGroupId is not found in dict, we create it
+    if (!taskGroupTeamIdLists[taskGroupTeamLinkList[i].taskGroupId]) {
+      taskGroupTeamIdLists[taskGroupTeamLinkList[i].taskGroupId] = [];
     }
-    // console.log('generateTaskStatusListForAllPeople taskGroupTeamIdLists:', taskGroupTeamIdLists);
-  } catch (err) {
-    status += `Error while fetching taskGroupIsForTeam: ${err.message} `;
-    console.error(status);
-    success = false;
+    taskGroupTeamIdLists[taskGroupTeamLinkList[i].taskGroupId].push(taskGroupTeamLinkList[i].teamId);
   }
+  // console.log('generateTaskStatusListForAllPeople taskGroupTeamIdLists:', taskGroupTeamIdLists);
 
-  // Get all team members so for each person, we can tell which team(s) they are in
-  const paramsTeamMemberInfoList = {};
-  const TeamMemberInfoList = await findTeamMemberListByParams(paramsTeamMemberInfoList);
+  // Organize team members so for each person, we can tell which team(s) they are in
   const teamMemberDict = {};
   TeamMemberInfoList.forEach((teamMember) => {
     if (!teamMemberDict[teamMember.personId]) {
@@ -146,9 +162,6 @@ exports.generateTaskStatusListForAllPeople = async () => {
     teamMemberDict[teamMember.personId][teamMember.teamId] = true;
   });
 
-  // Add params that look for values in person records that imply tasks needs to be generated?
-  const paramsPersonList = { statusActive: true };
-  const personList = await findPersonListByParams(paramsPersonList);
   // const personDict = personList.reduce((acc, person) => {
   //   acc[person.id] = person;
   //   return acc;
@@ -162,10 +175,12 @@ exports.generateTaskStatusListForAllPeople = async () => {
     } catch (err) {
       taskListForPerson = [];
     }
+    const previousTaskCount = taskListForPerson.length;
     const questionnairesAnsweredByThisPerson = questionnaireAnsweredDict[personList[i].id] || {};
     const teamsForThisPerson = teamMemberDict[personList[i].id] || {};
     // console.log('questionnairesAnsweredByThisPerson:', questionnairesAnsweredByThisPerson);
-    const generateResults = exports.generateTasksForPerson(
+    // eslint-disable-next-line no-await-in-loop
+    const generateResults = await exports.generateTasksForPerson(
       personList[i],
       questionnairesAnsweredByThisPerson,
       taskListForPerson,
@@ -180,6 +195,9 @@ exports.generateTaskStatusListForAllPeople = async () => {
     }
     if (generateResults.newTasksCreated) {
       ({ taskListForPerson } = generateResults);
+      for (let j = previousTaskCount; j < taskListForPerson.length; j++) {
+        taskList.push(taskListForPerson[j]);
+      }
       // console.log('taskListModified:', taskListForPerson);
     }
 
@@ -195,6 +213,9 @@ exports.generateTaskStatusListForAllPeople = async () => {
   return {
     status,
     success,
+    taskList,
+    taskDefinitionList,
+    taskGroupList,
   };
 };
 
@@ -341,6 +362,8 @@ exports.generateTasksForPerson = async (
 
 exports.retrieveTaskStatusListByPersonIdList = async (personIdList) => {
   // const personAnswersByPersonId = {};
+  let allTaskList = [];
+  let allTaskDefinitionList = [];
   let taskList = [];
   const taskDefinitionIdList = [];
   let taskDefinitionList = [];
@@ -351,7 +374,9 @@ exports.retrieveTaskStatusListByPersonIdList = async (personIdList) => {
 
   try {
     // To be moved
-    await exports.generateTaskStatusListForAllPeople();
+    const generateResults = await exports.generateTaskStatusListForAllPeople(personIdList);
+    allTaskList = generateResults.taskList || [];
+    allTaskDefinitionList = generateResults.taskDefinitionList || [];
   } catch (err) {
     status += err.message;
     success = false;
@@ -359,13 +384,12 @@ exports.retrieveTaskStatusListByPersonIdList = async (personIdList) => {
   // Start with the task data received for personIds in personIdList
   // console.log('personIdList:', personIdList);
   try {
-    let params = {};
     if (personIdList && personIdList.length > 0) {
-      params = {
-        personId: { in: personIdList },
-      };
+      const personIdSet = new Set(personIdList);
+      taskList = allTaskList.filter((task) => personIdSet.has(task.personId));
+    } else {
+      taskList = allTaskList;
     }
-    taskList = await findTaskListByParams(params);
     success = true;
     // console.log('== AFTER findTaskListByParams taskList:', taskList);
     if (taskList) {
@@ -378,7 +402,9 @@ exports.retrieveTaskStatusListByPersonIdList = async (personIdList) => {
     status += err.message;
     success = false;
   }
-  if (success && taskList.length > 0) {
+  const shouldPopulateDefinitionsAndGroups = !personIdList || personIdList.length === 0 || personIdList.length > 1;
+
+  if (success && shouldPopulateDefinitionsAndGroups && taskList.length > 0) {
     const keys = Object.keys(taskList);
     const values = Object.values(taskList);
     for (let i = 0; i < keys.length; i++) {
@@ -395,15 +421,14 @@ exports.retrieveTaskStatusListByPersonIdList = async (personIdList) => {
     // console.log('== AFTER findTaskListByParams taskGroupIdList:', taskGroupIdList);
   }
 
-  if (success) {
+  if (success && shouldPopulateDefinitionsAndGroups) {
     try {
-      let params = {};
       if (taskDefinitionIdList && taskDefinitionIdList.length > 0) {
-        params = {
-          id: { in: taskDefinitionIdList },
-        };
+        const taskDefinitionIdSet = new Set(taskDefinitionIdList);
+        taskDefinitionList = allTaskDefinitionList.filter((td) => taskDefinitionIdSet.has(td.id));
+      } else {
+        taskDefinitionList = allTaskDefinitionList;
       }
-      taskDefinitionList = await findTaskDefinitionListByParams(params);
       success = true;
       // console.log('== AFTER findTaskDefinitionListByParams taskDefinitionList:', taskDefinitionList);
       if (taskDefinitionList) {
@@ -419,7 +444,7 @@ exports.retrieveTaskStatusListByPersonIdList = async (personIdList) => {
   }
 
   // Retrieve the taskGroups so we can organize the tasks by taskGroup
-  if (success && taskGroupIdList.length > 0) {
+  if (success && shouldPopulateDefinitionsAndGroups && taskGroupIdList.length > 0) {
     try {
       taskGroupList = await findTaskGroupListByIdList(taskGroupIdList);
       success = true;
