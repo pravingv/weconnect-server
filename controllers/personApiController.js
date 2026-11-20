@@ -189,7 +189,8 @@ exports.personListRetrieve = async (request, response) => {
   const parsedUrl = new URL(request.url, `${process.env.BASE_URL}`);
   const queryParams = new URLSearchParams(parsedUrl.search);
   const searchText = queryParams.get('searchText');
-
+  const personId = convertToInteger(queryParams.get('personId'));
+  
   const jsonData = {
     isSearching: false,
     personList: [],
@@ -206,6 +207,9 @@ exports.personListRetrieve = async (request, response) => {
         { lastName: { contains: searchText, mode: 'insensitive' } },
         { emailPersonal: { contains: searchText, mode: 'insensitive' } },
       ];
+    }
+    if (personId) {
+      params.id = personId;
     }
     const personList = await findPersonListByParams(params);
     // const person = personList.find((per) => per.personId === parseInt(1));
