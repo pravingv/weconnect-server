@@ -10,6 +10,7 @@ const TASK_DEFINITION_FIELDS_ACCEPTED = {
   isForVolunteer: 'BOOLEAN',
   isGoogleDrivePermissionTask: 'BOOLEAN',
   isQuestionnaireTask: 'BOOLEAN',
+  isYesNoTask: 'BOOLEAN',
   order: 'INTEGER',
   questionnaireId: 'INTEGER',
   statusActive: 'BOOLEAN',
@@ -49,6 +50,8 @@ const TASK_FIELDS_ACCEPTED = [
   'statusToDoByHuman',
   'taskGroupId',
   'taskType',
+  'statusYes',
+  'statusNo',
 ];
 
 const TASK_FIELDS_ACCEPTED_DICT = {
@@ -57,9 +60,11 @@ const TASK_FIELDS_ACCEPTED_DICT = {
   statusDone: 'BOOLEAN',
   statusError: 'BOOLEAN',
   statusErrorResolved: 'BOOLEAN',
+  statusNo: 'BOOLEAN',
   statusReadyToDo: 'BOOLEAN',
   statusResolvedComment: 'BOOLEAN',
   statusToDoByHuman: 'BOOLEAN',
+  statusYes: 'BOOLEAN',
   taskGroupId: 'INTEGER',
   taskType: 'STRING',
 };

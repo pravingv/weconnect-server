@@ -10,9 +10,11 @@ model Task {
   statusError           Boolean?
   /// If there was an issue, it has been resolved
   statusErrorResolved   Boolean?
+  statusNo              Boolean?
   statusReadyToDo       Boolean  @default(false)
   statusResolvedComment String?
   statusToDoByHuman     Boolean?
+  statusYes             Boolean?
   /// Id of the TaskDefinition
   taskDefinitionId      Int
   /// Id of the TaskGroup this stask is a part of
@@ -53,6 +55,7 @@ model TaskDefinition {
   isGoogleDrivePermissionTask       Boolean?
   /// If completing this step includes answering a questionnaire, set 'isQuestionnaireTask' to true.
   isQuestionnaireTask               Boolean?
+  isYesNoTask                       Boolean?
   /// What step is this in the series
   order                             Int      @default(0)
   /// Questionnaire to refer to in the instructions
