@@ -733,28 +733,35 @@ exports.taskSave = async (request, response) => {
   //  defined in TASK_DEFINITION_FIELDS_TO_MAP_TO_PERSON_FIELDS.
   const taskDoneFinal = jsonData.success && taskDone && taskDefinitionId;
   // console.log('taskDoneFinal:', taskDoneFinal, ', jsonData.success:', jsonData.success, ', taskDone:', taskDone, ', taskDefinitionId:', taskDefinitionId);
-  if (taskDoneFinal) {
-    // Now go on to update Person table
-    const taskDefinition = await findTaskDefinitionById(taskDefinitionId);
+  // Now go on to update Person table
+  const taskDefinition = await findTaskDefinitionById(taskDefinitionId);
     // console.log('taskDefinition:', taskDefinition);
     // If the field in taskDefinition is true and matches a key found in TASK_DEFINITION_FIELDS_TO_MAP_TO_PERSON_FIELDS,
     // then update the corresponding field in Person table.
+  if (taskDoneFinal|| taskDefinition?.isYesNoTask) {
     const personUpdateDict = {};
     let personUpdateFound = false;
     // eslint-disable-next-line no-restricted-syntax
     for (const [taskDefinitionField, personField] of Object.entries(TASK_DEFINITION_FIELDS_TO_MAP_TO_PERSON_FIELDS)) {
       if (personField && taskDefinition && taskDefinitionField) {
         // console.log('exports.taskSave taskDefinitionField:', taskDefinitionField, ', personField:', personField);
-        if (taskDefinitionField === 'statusOfferDecisionNeededSetFalse') {
-          if (taskDefinition[taskDefinitionField] === true) {
-            personUpdateDict[personField] = false;
-            personUpdateFound = true;
-          }
-        } else if (taskDefinition[taskDefinitionField] === true) {
-          // console.log('Updating person field:', personField, ' with TRUE');
-          personUpdateDict[personField] = true;
+        if (taskDefinition.isYesNoTask && taskDefinitionField === 'statusOfferApproved') {
+          personUpdateDict[personField] = taskDoneFinal? jsonData.statusYes === true: false;
+          personUpdateFound = true;
+        } else if (taskDefinition.isYesNoTask && taskDefinitionField === 'statusOfferWillNotBeMade') {
+          personUpdateDict[personField] = taskDoneFinal? jsonData.statusNo === true: false;
+          personUpdateFound = true;
+        } else if (taskDoneFinal){
+          if (taskDefinitionField === 'statusOfferDecisionNeededSetFalse') {
+            if (taskDefinition[taskDefinitionField] === true) {
+              personUpdateDict[personField] = false;
+              personUpdateFound = true;
+            }
+          } else if (taskDefinition[taskDefinitionField] === true) {
+            personUpdateDict[personField] = true;
           personUpdateFound = true;
         }
+      }
       } else {
         console.log('MISSING_TASKDONE_VARIABLE ');
       }
@@ -765,6 +772,5 @@ exports.taskSave = async (request, response) => {
       await savePerson(personUpdateDict);
     }
   }
-
   response.json(jsonData);
 };
